@@ -51,6 +51,7 @@ class GraphState(TypedDict):
 # ---------------------------------------------------------------------------
 
 _llm = None
+_llm_reranker = None
 _embeddings_model = None
 _faiss_index = None
 _assessments = None
@@ -65,9 +66,21 @@ def get_llm():
         _llm = ChatOpenAI(
             model=config.LLM_MODEL,
             api_key=config.OPENAI_API_KEY,
-            temperature=0.6,
+            temperature=0.0,
         )
     return _llm
+
+
+def get_llm_reranker():
+    """Deterministic LLM for reranking (temperature=0 for consistency)."""
+    global _llm_reranker
+    if _llm_reranker is None:
+        _llm_reranker = ChatOpenAI(
+            model=config.LLM_MODEL,
+            api_key=config.OPENAI_API_KEY,
+            temperature=0.0,
+        )
+    return _llm_reranker
 
 
 def get_embeddings_model():
@@ -88,16 +101,26 @@ def get_index():
 
 
 def _tokenize(text: str) -> list[str]:
-    """Simple whitespace + punctuation tokenizer for BM25."""
-    return re.findall(r'[a-z0-9]+', text.lower())
+    """Tokenizer for BM25 with compound word splitting (htmlcss→html+css)."""
+    tokens = re.findall(r'[a-z0-9]+', text.lower())
+    extra = []
+    for t in tokens:
+        parts = re.findall(r'[a-z]+|[0-9]+', t)
+        if len(parts) > 1:
+            extra.extend(p for p in parts if len(p) > 1)
+    return tokens + extra
 
 
 def get_bm25():
-    """Build BM25 index over assessment texts (lazy singleton)."""
+    """Build BM25 index with name-boosted corpus (lazy singleton)."""
     global _bm25_index, _bm25_corpus
     if _bm25_index is None:
         _, assessments, texts = get_index()
-        _bm25_corpus = [_tokenize(t) for t in texts]
+        enhanced = []
+        for a, t in zip(assessments, texts):
+            name = a['name'].lower()
+            enhanced.append(f"{name} {name} {name} {t}")
+        _bm25_corpus = [_tokenize(t) for t in enhanced]
         _bm25_index = BM25Okapi(_bm25_corpus)
     return _bm25_index
 
@@ -106,76 +129,54 @@ def get_bm25():
 # Node 1: Query Analyzer Agent
 # ---------------------------------------------------------------------------
 
-QUERY_ANALYZER_PROMPT = """You generate search queries to find SHL assessments using BOTH semantic search and keyword matching. Your queries must contain EXACT KEYWORDS that appear in assessment names.
+QUERY_ANALYZER_PROMPT = """You generate 12-18 search queries to find SHL assessments. Queries feed into BOTH semantic (FAISS) and keyword (BM25) search, so mix two styles:
+A) KEYWORD QUERIES — include exact words from real SHL product names (for BM25 keyword matching)
+B) DESCRIPTIVE QUERIES — natural language descriptions (for FAISS semantic matching)
 
-Generate 12-18 diverse search queries. Mix two styles:
-A) KEYWORD QUERIES: Use exact words from real SHL product names (for keyword matching)
-B) DESCRIPTIVE QUERIES: Use natural language descriptions (for semantic matching)
+SHL ASSESSMENT CATALOG — naming patterns to use in keyword queries:
 
-ROLE-TYPE PATTERNS (from real hiring data — follow these closely):
+| Category | Naming Pattern | Examples |
+|----------|---------------|----------|
+| Skill/Knowledge Tests | Named after the skill | "Core Java", "Python", "SQL Server", "Marketing", "Selenium" |
+| Coding Simulations | "Automata" prefix | "Automata Fix", "Automata SQL", "Automata Selenium" |
+| Writing Simulations | "WriteX" prefix | "WriteX Email Writing Sales", "WriteX Email Writing Managerial" |
+| Job-Fit Solutions | Role + version + "JFA" | "Technology Professional 8.0 JFA", "Manager 8.0 JFA", "Professional 7.1" |
+| Short Form Packages | Role + "Short Form" | "Administrative Professional Short Form", "Financial Professional Short Form" |
+| Pre-packaged Solutions | Role + version | "Entry Level Sales 7.1", "Sales Representative Solution" |
+| Personality | "OPQ" or "Motivation" prefix | "OPQ32", "OPQ Leadership Report", "OPQ Team Types", "MQM5" |
+| Leadership Reports | "Enterprise Leadership" | "Enterprise Leadership Report", "Enterprise Leadership Report 2.0" |
+| Cognitive/Verify | "Verify" or "SHL Verify" | "Verify Numerical Ability", "Verify Verbal Ability", "Verify Interactive Inductive Reasoning" |
+| Communication | Direct name | "Business Communication", "Interpersonal Communications", "SVAR Spoken English", "English Comprehension" |
+| Computer/Data | Direct name | "Basic Computer Literacy", "Data Entry", "Microsoft Excel 365" |
+| Global/Broad | "Global Skills" | "Global Skills Assessment", "Global Skills Development Report" |
 
-TECHNICAL ROLES (developer, QA, data analyst, engineer):
-  Expected assessments: Knowledge & Skills tests for each named tech + coding simulations + Professional JFA
-  Queries must include: exact tech names ("Java", "SQL Server", "Python", "Selenium"), "Automata" for coding sims, "Professional" for JFA
-  Example keywords: "Core Java", "Automata Fix", "Automata SQL", "Technology Professional", "Agile Software Development"
+QUERY GENERATION STRATEGY (apply to ANY role):
+1. For each technology/skill NAMED in the query → create a keyword query using the exact SHL assessment name
+2. For the role type → find matching JFA, Short Form, or Pre-packaged solutions
+3. For supporting skills implied by the role → add relevant cognitive, communication, or personality queries
+4. Add 2-3 descriptive/semantic queries about the role
 
-SALES ROLES (sales rep, graduates in sales):
-  Expected assessments: Entry Level Sales solutions + Sales simulations + Business Communication + Spoken English + Interpersonal
-  Queries must include: "entry level sales", "sales sift out", "sales representative", "sales phone simulation", "business communication", "spoken English", "SVAR", "interpersonal", "English comprehension", "sales transformation"
-
-EXECUTIVE/LEADERSHIP ROLES (COO, Director, VP, CEO):
-  Expected assessments: Enterprise Leadership Reports + OPQ personality + OPQ Leadership + Team Types + Global Skills
-  Queries must include: "enterprise leadership report", "OPQ leadership report", "OPQ team types leadership styles", "personality questionnaire OPQ", "global skills assessment", "executive scenarios"
-
-ADMIN/BANKING ROLES (bank admin, clerk, assistant):
-  Expected assessments: Short Form solutions + Verify Numerical + Data Entry + Computer Literacy + Financial services
-  Queries must include: "bank administrative assistant", "administrative professional short form", "financial professional", "verify numerical ability", "data entry", "basic computer literacy", "general entry level data entry"
-
-MARKETING/CONTENT ROLES:
-  Expected assessments: Domain knowledge + Manager JFA + Excel + Writing simulation + Inductive Reasoning
-  Queries must include: "marketing", "digital advertising", "SEO", "Microsoft Excel 365", "manager 8.0 JFA", "WriteX email writing", "inductive reasoning", "interpersonal communications"
-
-CONSULTANT/PROFESSIONAL ROLES:
-  Expected assessments: Cognitive tests + OPQ personality + Professional JFA + Administrative Short Form
-  Queries must include: "verify interactive numerical calculation", "verify verbal ability", "personality questionnaire OPQ", "administrative professional", "professional 7.1"
-
-EXAMPLES:
+EXAMPLES (showing the principle — generalize to any role):
 
 Query: "Java developer who collaborates, 40 min"
 {
-  "search_queries": ["Core Java entry level assessment", "Core Java advanced level", "Java 8 programming test", "Automata coding simulation", "Automata Fix code debugging", "technology professional job focused assessment", "interpersonal communications skills", "agile software development", "professional 8.0 JFA", "software development knowledge test", "coding automation simulation", "collaboration and teamwork assessment", "object oriented programming"],
+  "search_queries": ["Core Java entry level assessment", "Core Java advanced level", "Java 8 programming test", "Automata coding simulation", "Automata Fix code debugging", "technology professional 8.0 job focused assessment", "interpersonal communications skills", "agile software development", "professional 8.0 JFA", "software development knowledge test", "collaboration and teamwork assessment", "object oriented programming"],
   "skills": ["Java", "collaboration", "OOP", "agile"],
   "max_duration_minutes": 40,
   "domain": "software development"
 }
 
-Query: "Sales graduates, budget for 3 assessments under 30 min"
-{
-  "search_queries": ["entry level sales 7.1 solution", "entry level sales sift out", "entry level sales solution", "sales representative solution", "sales and service phone simulation", "business communication adaptive", "SVAR spoken English Indian accent", "interpersonal communications", "English comprehension", "graduate 8.0 job focused assessment", "sales transformation individual contributor", "technical sales associate solution", "sales profiler cards", "general entry level all industries", "customer engagement assessment"],
-  "skills": ["sales", "customer engagement", "communication", "English"],
-  "max_duration_minutes": 30,
-  "domain": "sales"
-}
-
 Query: "COO for China company, cultural fit, 1 hour"
 {
-  "search_queries": ["enterprise leadership report", "enterprise leadership report 2.0", "OPQ leadership report", "occupational personality questionnaire OPQ32", "OPQ team types and leadership styles report", "global skills assessment", "executive scenarios narrative report", "motivation questionnaire MQM5", "OPQ emotional intelligence report", "executive short form", "director short form", "managerial scenarios", "MFS 360 enterprise leadership", "strategic leadership evaluation"],
+  "search_queries": ["enterprise leadership report", "enterprise leadership report 2.0", "OPQ leadership report", "occupational personality questionnaire OPQ32", "OPQ team types and leadership styles report", "global skills assessment", "executive scenarios narrative report", "motivation questionnaire MQM5", "OPQ emotional intelligence report", "executive short form", "MFS 360 enterprise leadership", "strategic leadership evaluation"],
   "skills": ["operations management", "leadership", "cultural fit", "executive strategy"],
   "max_duration_minutes": 60,
   "domain": "executive leadership"
 }
 
-Query: "Marketing Manager, brand positioning, digital campaigns, content strategy"
-{
-  "search_queries": ["marketing knowledge assessment", "digital advertising test", "SEO search engine optimization", "Microsoft Excel 365 essentials", "manager 8.0 JFA job focused", "manager 8.0+ JFA", "WriteX email writing sales", "SHL verify interactive inductive reasoning", "interpersonal communications", "business communications", "professional 8.0 JFA", "brand management assessment", "content strategy writing skills", "manager short form"],
-  "skills": ["marketing", "digital advertising", "SEO", "content strategy", "Excel"],
-  "max_duration_minutes": null,
-  "domain": "marketing"
-}
-
 Query: "Senior Data Analyst, SQL, Python, Tableau, 5 years"
 {
-  "search_queries": ["SQL Server analysis services SSAS", "SQL Server assessment", "Automata SQL coding simulation", "Python programming test", "Tableau data visualization", "data warehousing concepts", "Microsoft Excel 365", "Microsoft Excel 365 essentials", "data science assessment", "professional 7.0 solution", "professional 7.1 solution", "technology professional 8.0 job focused", "basic statistics assessment", "numerical reasoning ability test", "machine learning assessment"],
+  "search_queries": ["SQL Server analysis services SSAS", "SQL Server assessment", "Automata SQL coding simulation", "Python programming test", "Tableau data visualization", "data warehousing concepts", "Microsoft Excel 365 essentials", "professional 7.0 solution", "professional 7.1 solution", "technology professional 8.0 job focused", "data science assessment", "numerical reasoning ability test"],
   "skills": ["SQL", "Python", "Tableau", "data analysis", "statistics", "Excel"],
   "max_duration_minutes": null,
   "domain": "data analytics"
@@ -183,23 +184,15 @@ Query: "Senior Data Analyst, SQL, Python, Tableau, 5 years"
 
 Query: "ICICI Bank Assistant Admin, 0-2 years, 30-40 min"
 {
-  "search_queries": ["bank administrative assistant short form", "administrative professional short form", "financial professional short form", "verify numerical ability", "general entry level data entry 7.0 solution", "basic computer literacy Windows 10", "financial and banking services", "data entry skills assessment", "workplace administration skills", "entry level cashier 7.1", "financial accounting knowledge", "accounts payable assessment", "customer service short form", "personal banker short form"],
+  "search_queries": ["bank administrative assistant short form", "administrative professional short form", "financial professional short form", "verify numerical ability", "general entry level data entry 7.0 solution", "basic computer literacy Windows 10", "data entry skills assessment", "workplace administration skills", "entry level cashier 7.1", "financial accounting knowledge", "customer service short form"],
   "skills": ["banking", "administration", "data entry", "financial transactions", "computer literacy"],
   "max_duration_minutes": 40,
   "domain": "banking"
 }
 
-Query: "Consultant position, assessment under 40 min"
-{
-  "search_queries": ["SHL verify interactive numerical calculation", "verify verbal ability next generation", "occupational personality questionnaire OPQ32", "administrative professional short form", "professional 7.1 solution international", "professional 7.0 solution", "inductive reasoning test", "deductive reasoning assessment", "business communication skills", "interpersonal communications", "motivation questionnaire MQM5", "manager short form", "graduate 8.0 job focused assessment"],
-  "skills": ["analytical thinking", "communication", "problem solving", "consulting"],
-  "max_duration_minutes": 40,
-  "domain": "consulting"
-}
-
 Return JSON with:
-- "search_queries": 12-18 queries. Include EXACT KEYWORDS from real SHL assessment names (e.g., "Automata", "OPQ32", "verify numerical ability", "short form", "JFA", "7.1", "8.0").
-- "skills": list of skills mentioned or implied
+- "search_queries": 12-18 queries using exact SHL assessment name keywords from the catalog table above
+- "skills": skills mentioned or implied
 - "max_duration_minutes": integer or null
 - "domain": brief domain label"""
 
@@ -342,13 +335,14 @@ def retriever_node(state: GraphState) -> dict:
 
 def reranker_node(state: GraphState) -> dict:
     """LLM-based re-ranking of retrieved candidates."""
-    llm = get_llm()
+    llm = get_llm_reranker()
     candidates = state["candidates"]
+    top_k_final = config.TOP_K_FINAL
 
     if not candidates:
         return {"recommendations": []}
 
-    # Build numbered candidate list
+    # Build numbered candidate list (no scores to avoid bias)
     lines = []
     for i, c in enumerate(candidates, 1):
         line = f"{i}. {c['name']}"
@@ -358,7 +352,6 @@ def reranker_node(state: GraphState) -> dict:
         if c.get("duration"):
             line += f" | Duration: {c['duration']}min"
         line += f" | Remote: {c['remote_support']}"
-        line += f" | Score: {c['score']:.3f}"
         lines.append(line)
 
     candidates_text = "\n".join(lines)
@@ -366,58 +359,53 @@ def reranker_node(state: GraphState) -> dict:
     max_dur = state.get("max_duration")
     dur_note = f"\n- IMPORTANT: Maximum duration is {max_dur} minutes. Exclude assessments exceeding this." if max_dur else ""
 
-    top_k_final = config.TOP_K_FINAL
+    system_msg = f"""You are an expert SHL assessment consultant. Select exactly {top_k_final} assessments most relevant to the hiring query.
 
-    system_msg = f"""You are a senior SHL assessment consultant. Re-rank the candidate assessments by relevance to the hiring query and pick the top {top_k_final}.
+SELECTION PRINCIPLES:
 
-SCORING GUIDE — What makes an assessment relevant depends on the ROLE TYPE:
+1. NAMED SKILL MATCH (highest priority): If the query names a technology/skill (e.g., "Python", "SQL", "Java", "Excel"), you MUST include the assessment that tests that exact skill.
 
-FOR TECHNICAL ROLES (developer, QA, data analyst, engineer):
-- HIGHEST: Knowledge & Skills tests that directly match named technologies (Java 8, Python, SQL Server, Selenium, HTML/CSS)
-- HIGH: Coding simulations (Automata, Automata Fix, Automata SQL, Automata Selenium)
-- MEDIUM: Job-fit solutions (Technology Professional JFA, Professional 7.1)
-- LOW: Generic personality/cognitive tests (unless query specifically mentions collaboration or reasoning)
+2. COMPLETE SKILL COVERAGE: Cover ALL different skill areas in the query. If 5 skills are mentioned, each should have at least one assessment. Don't cluster multiple assessments on one skill while ignoring others.
 
-FOR SALES ROLES (sales rep, sales graduate):
-- HIGHEST: Pre-packaged Sales Solutions (Entry Level Sales 7.1, Sales Sift Out, Sales Representative Solution)
-- HIGH: Sales simulations (Sales & Service Phone Simulation), communication tests (Business Communication, SVAR Spoken English)
-- MEDIUM: Interpersonal Communications, English Comprehension
-- LOW: Cognitive/personality tests (unless query asks for them)
+3. ROLE-FIT SOLUTIONS: Include 1-2 pre-packaged solutions (JFA, Short Form, 7.0/7.1) that match the role type and seniority.
 
-FOR EXECUTIVE/LEADERSHIP ROLES (COO, Director, VP):
-- HIGHEST: Leadership reports (Enterprise Leadership Report 1.0/2.0, OPQ Leadership Report)
-- HIGH: Personality assessments (OPQ32, OPQ Team Types and Leadership Styles)
-- MEDIUM: Executive solutions (Executive Short Form), Global Skills Assessment
-- LOW: Technical knowledge tests
+4. NO DUPLICATES: Never pick near-duplicates (e.g., "Professional 7.1 Americas" vs "Professional 7.1 International" — pick one only).
+{dur_note}
 
-FOR ADMIN/BANKING ROLES (bank admin, clerk, assistant):
-- HIGHEST: Pre-packaged Short Forms (Bank Administrative Assistant, Administrative Professional, Financial Professional)
-- HIGH: Verify Numerical Ability, Data Entry, Basic Computer Literacy
-- MEDIUM: General Entry Level solutions, Workplace Administration Skills
-- LOW: Advanced technical or leadership tests
+EXAMPLES of good assessment batteries (learn the selection pattern, apply to any role):
 
-FOR MARKETING/CONTENT ROLES:
-- HIGHEST: Domain knowledge (Marketing, Digital Advertising, SEO, Excel)
-- HIGH: Manager solutions (Manager 8.0+ JFA), Writing simulations (WriteX Email Writing)
-- MEDIUM: Inductive Reasoning, Interpersonal Communications
-- LOW: Unrelated technical tests
+Java Developer + collaboration, 40 min → Core Java Advanced, Core Java Entry Level, Java 8, Automata Fix, Technology Professional JFA, Agile Software Development, Interpersonal Communications
+(Pattern: skill-specific tests + coding sim + role-fit JFA + soft skill)
 
-GENERAL RULES:
-- Assessments matching a NAMED skill in the query (e.g., "SQL" → SQL Server test) are always top priority
-- Pre-packaged solutions (JFA, Short Form, 7.1) matching the role type are highly relevant
-- NEVER pick duplicates or near-duplicates (e.g., don't pick both "7.1 Americas" and "7.1 International")
-- Prefer assessments with higher retrieval scores when relevance is equal{dur_note}
+Senior Data Analyst (SQL, Python, Tableau, Excel) → SQL Server Analysis Services, SQL Server, Automata SQL, Python, Tableau, Excel 365 Essentials, Excel 365, Data Warehousing, Professional 7.0, Professional 7.1
+(Pattern: one test per named skill + related sim + role-fit solutions)
 
-Select the top {top_k_final} most relevant. Return JSON: {{"selected": [exactly {top_k_final} candidate numbers (1-indexed)]}}"""
+COO, cultural fit → Enterprise Leadership Report 2.0, Enterprise Leadership 1.0, OPQ32, OPQ Leadership Report, OPQ Team Types, Global Skills Assessment
+(Pattern: leadership reports + personality for cultural fit)
 
-    user_msg = f"""I need to hire for this role. Design the assessment battery.
+Bank Admin, entry-level → Bank Administrative Short Form, Administrative Professional Short Form, Financial Professional Short Form, Verify Numerical, General Entry Level Data Entry, Basic Computer Literacy
+(Pattern: role-specific packages + practical aptitude tests)
 
-Role/Query: {state['query']}
+Sales Graduate → Entry Level Sales 7.1, Sales Sift Out, Sales Representative Solution, Business Communication, SVAR Spoken English, Interpersonal Communications, English Comprehension
+(Pattern: role-specific packages + communication + language tests)
 
-Key skills to test: {state.get('skills', [])}
-Domain: {state.get('domain', 'general')}
+Marketing Manager → Marketing, Digital Advertising, SEO, Excel 365 Essentials, Manager 8.0 JFA, WriteX Email Writing, Inductive Reasoning
+(Pattern: domain knowledge + manager JFA + writing sim + reasoning)
 
-Available assessments (pick {top_k_final}):
+Consultant → Verify Interactive Numerical, Verify Verbal Ability, OPQ32, Administrative Professional Short Form, Professional 7.1
+(Pattern: cognitive tests + personality + role-fit solution)
+
+For any role not shown: apply the same principle — match assessments directly to the skills and competencies the role requires.
+
+Return JSON: {{"selected": [exactly {top_k_final} candidate numbers]}}"""
+
+    skills = state.get("skills", [])
+    skills_note = f"\nRequired skills/competencies: {', '.join(skills)}" if skills else ""
+
+    user_msg = f"""Query: {state['query']}
+Domain: {state.get('domain', 'general')}{skills_note}
+
+Available assessments (select {top_k_final}):
 {candidates_text}"""
 
     response = llm.invoke([
@@ -453,6 +441,23 @@ Available assessments (pick {top_k_final}):
         if c["url"] not in seen:
             seen.add(c["url"])
             recommendations.append(c)
+
+    # Post-filter: enforce duration constraint if specified
+    max_dur = state.get("max_duration")
+    if max_dur:
+        filtered = [r for r in recommendations
+                    if not r.get("duration") or r["duration"] <= max_dur]
+        # Backfill from candidates that fit within duration
+        filtered_urls = {r["url"] for r in filtered}
+        for c in candidates:
+            if len(filtered) >= top_k_final:
+                break
+            if c["url"] not in filtered_urls:
+                dur = c.get("duration")
+                if not dur or dur <= max_dur:
+                    filtered_urls.add(c["url"])
+                    filtered.append(c)
+        recommendations = filtered[:top_k_final]
 
     return {"recommendations": recommendations}
 
