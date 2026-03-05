@@ -22,6 +22,6 @@ REQUEST_DELAY = 1.0  # seconds between requests
 MAX_RETRIES = 3
 
 # Recommendation settings
-TOP_K_RETRIEVAL = 40   # candidates per query from FAISS
-TOP_K_RERANKER = 60    # total candidates passed to reranker
-TOP_K_FINAL = 15       # final recommendations returned
+TOP_K_PER_QUERY = 40   # candidates per search query from vector search
+TOP_K_TO_LLM = 70      # total candidates sent to LLM reranker
+TOP_K_FINAL = 10       # final recommendations to show
