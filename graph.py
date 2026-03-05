@@ -86,21 +86,36 @@ def get_index():
 # Node 1: Query Analyzer Agent
 # ---------------------------------------------------------------------------
 
-QUERY_ANALYZER_PROMPT = """You are an SHL assessment expert. Analyze the hiring query and generate search queries to find relevant SHL assessments.
+QUERY_ANALYZER_PROMPT = """You are an SHL assessment expert. Deeply analyze the hiring query — not just literal words but what the role ACTUALLY requires.
 
-A complete assessment battery for any role needs ALL 4 categories:
-1. TECHNICAL/DOMAIN SKILLS: Tests for specific skills mentioned (e.g., "Java 8 programming test", "SQL database test", "SEO knowledge test", "digital advertising test")
-2. COGNITIVE/APTITUDE: Reasoning and ability tests (e.g., "verify numerical ability test", "verify verbal ability test", "inductive reasoning test")
-3. PERSONALITY/BEHAVIORAL: Personality and soft skill assessments (e.g., "occupational personality questionnaire", "interpersonal communication assessment")
-4. ROLE-BASED SOLUTIONS: Pre-built job solutions matching the role (e.g., "professional job focused assessment", "entry level sales solution", "administrative professional short form", "manager job focused assessment")
+STEP 1 - Break down the query:
+- What is the company/industry? (e.g., "ICICI Bank" = banking & finance)
+- What is the job role? (e.g., "Assistant Admin" = administrative work, data entry, computer usage)
+- What experience level? (e.g., "0-2 years" = entry level)
+- What implicit skills does this role need? (e.g., bank admin needs: financial knowledge, numerical skills, computer literacy, data entry)
 
-Return JSON with:
-- "search_queries": Generate one search query per specific skill/tool mentioned AND one query per category above. Each query should be short (under 15 words) and specific to find SHL assessments. You MUST cover ALL 4 categories.
-  Example for "Java developer who collaborates, 40 min":
-  ["Java programming assessment", "core Java test", "interpersonal communication assessment", "verify numerical ability", "occupational personality questionnaire", "professional job focused assessment", "automata coding simulation test"]
-- "skills": list of ALL skills mentioned or implied
+STEP 2 - Generate search queries covering ALL 4 categories:
+1. TECHNICAL/DOMAIN: Tests for explicit AND implied skills from industry+role.
+   "ICICI Bank Admin" -> "financial and banking services test", "basic computer literacy test", "data entry assessment"
+   "Java developer collaborates" -> "Java programming test", "core Java assessment", "automata coding simulation"
+   "Content Writer SEO" -> "SEO knowledge test", "English comprehension test", "written English test"
+2. COGNITIVE/APTITUDE: Reasoning tests relevant to the role.
+   Banking/finance -> "verify numerical ability test"
+   Creative/writing -> "verify verbal ability test"
+   Analytical -> "inductive reasoning test"
+3. PERSONALITY/BEHAVIORAL: Soft skill assessments.
+   "occupational personality questionnaire", "interpersonal communication assessment"
+4. ROLE-BASED SOLUTIONS: Pre-built job solutions matching the exact role.
+   Bank admin -> "bank administrative assistant short form", "administrative professional short form"
+   Sales -> "entry level sales solution", "sales representative solution"
+   Manager -> "manager job focused assessment"
+   Professional -> "professional job focused assessment"
+
+Return JSON:
+- "search_queries": One short query (under 15 words) per skill/requirement. MUST cover ALL 4 categories. Generate 6-10 queries.
+- "skills": ALL skills, both explicit AND implied by industry/role
 - "max_duration_minutes": integer or null
-- "domain": brief domain (e.g., "software development", "banking", "sales")"""
+- "domain": brief domain (e.g., "banking", "software development")"""
 
 
 def query_analyzer_node(state: GraphState) -> dict:
@@ -174,9 +189,23 @@ def retriever_node(state: GraphState) -> dict:
     index, assessments, texts = get_index()
     emb_model = get_embeddings_model()
 
-    search_queries = state.get("search_queries", [])
+    search_queries = list(state.get("search_queries", []))
     if not search_queries:
         search_queries = [state["query"][:300]]
+
+    # Add individual skills as search queries (e.g., "Java assessment", "SQL test")
+    skills = state.get("skills", [])
+    for skill in skills:
+        skill_query = f"{skill} assessment test"
+        if skill_query not in search_queries:
+            search_queries.append(skill_query)
+
+    # Add domain as a search query
+    domain = state.get("domain", "")
+    if domain:
+        domain_query = f"{domain} job assessment solution"
+        if domain_query not in search_queries:
+            search_queries.append(domain_query)
 
     top_k = config.TOP_K_RETRIEVAL
 
@@ -210,8 +239,8 @@ def retriever_node(state: GraphState) -> dict:
             url_best_score[url] = 0.30
             url_to_assessment[url] = a
 
-    # Sort by score descending, take top 60 for re-ranking
-    sorted_items = sorted(url_best_score.items(), key=lambda x: x[1], reverse=True)[:60]
+    # Sort by score descending, take top K for re-ranking
+    sorted_items = sorted(url_best_score.items(), key=lambda x: x[1], reverse=True)[:config.TOP_K_RERANKER]
 
     candidates = []
     for url, score in sorted_items:
@@ -258,9 +287,10 @@ def reranker_node(state: GraphState) -> dict:
     candidates_text = "\n".join(lines)
 
     max_dur = state.get("max_duration")
-    dur_note = f"\n- IMPORTANT: Maximum duration is {max_dur} minutes. Exclude assessments exceeding this." if max_dur else ""
+    dur_note = "\n- IMPORTANT: Maximum duration is {} minutes. Exclude assessments exceeding this.".format(max_dur) if max_dur else ""
 
-    system_msg = f"""You are an expert SHL assessment recommendation system. Select exactly 10 assessments from the candidates below.
+    k = config.TOP_K_FINAL
+    system_msg = f"""You are an expert SHL assessment recommendation system. Select exactly {k} assessments from the candidates below.
 
 A complete assessment battery MUST include ALL 4 categories:
 1. TECHNICAL/DOMAIN (Knowledge & Skills): Pick tests that match the specific skills in the query (e.g., Java, SQL, SEO, Excel). Pick 4-6 of these.
@@ -269,12 +299,12 @@ A complete assessment battery MUST include ALL 4 categories:
 4. ROLE SOLUTION: Pick 1 role-based job solution if available (e.g., professional solution, manager JFA, administrative short form).
 
 RULES:
-- ALWAYS select exactly 10 assessments covering ALL 4 categories above
+- ALWAYS select exactly {k} assessments covering ALL 4 categories above
 - Match specific skills from the query to the right technical tests
 - Do NOT pick duplicate/very similar assessments (e.g., don't pick both "Manager 7.1 Americas" and "Manager 7.1 International")
 - Prefer assessments with higher similarity scores when relevance is equal{dur_note}
 
-Return JSON: {{"selected": [exactly 10 candidate numbers (1-indexed)]}}"""
+Return JSON: {{"selected": [exactly {k} candidate numbers (1-indexed)]}}"""
 
     user_msg = f"""Query: {state['query']}
 
@@ -298,7 +328,7 @@ Candidates:
         result = json.loads(content)
         selected_indices = result.get("selected", [])
     except (json.JSONDecodeError, AttributeError, IndexError):
-        selected_indices = list(range(1, min(11, len(candidates) + 1)))
+        selected_indices = list(range(1, min(k + 1, len(candidates) + 1)))
 
     # Map indices to recommendations
     recommendations = []
@@ -307,12 +337,12 @@ Candidates:
         if 1 <= idx <= len(candidates) and candidates[idx - 1]["url"] not in seen:
             seen.add(candidates[idx - 1]["url"])
             recommendations.append(candidates[idx - 1])
-        if len(recommendations) >= 10:
+        if len(recommendations) >= k:
             break
 
-    # Fill up to 10 if needed
+    # Fill up to k if needed
     for c in candidates:
-        if len(recommendations) >= 10:
+        if len(recommendations) >= k:
             break
         if c["url"] not in seen:
             seen.add(c["url"])

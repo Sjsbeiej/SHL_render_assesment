@@ -10,6 +10,7 @@ from urllib.parse import urlparse
 
 import openpyxl
 
+import config
 from graph import recommend
 
 
@@ -65,7 +66,7 @@ def compute_recall_at_k(recommended_urls: list[str], relevant_urls: list[str], k
 
 
 def evaluate_train_set(dataset_path: str):
-    """Evaluate on the train set and report Recall@10."""
+    """Evaluate on the train set and report Recall@K."""
     print("Loading train set...")
     query_urls = load_train_set(dataset_path)
     print(f"Loaded {len(query_urls)} queries with {sum(len(v) for v in query_urls.values())} total labels")
@@ -79,11 +80,11 @@ def evaluate_train_set(dataset_path: str):
         recommendations = recommend(query)
         recommended_urls = [r["url"] for r in recommendations]
 
-        recall = compute_recall_at_k(recommended_urls, relevant_urls, k=10)
+        recall = compute_recall_at_k(recommended_urls, relevant_urls, k=config.TOP_K_FINAL)
         recalls.append(recall)
 
         print(f"Recommended: {len(recommended_urls)} assessments")
-        print(f"Recall@10: {recall:.4f}")
+        print(f"Recall@{config.TOP_K_FINAL}: {recall:.4f}")
 
         # Show matches
         rec_normalized = [normalize_url(u) for u in recommended_urls]
@@ -94,7 +95,7 @@ def evaluate_train_set(dataset_path: str):
 
     mean_recall = sum(recalls) / len(recalls) if recalls else 0.0
     print(f"\n{'=' * 60}")
-    print(f"Mean Recall@10: {mean_recall:.4f}")
+    print(f"Mean Recall@{config.TOP_K_FINAL}: {mean_recall:.4f}")
     print(f"Per-query recalls: {[f'{r:.2f}' for r in recalls]}")
     return mean_recall
 
