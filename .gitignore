@@ -12,5 +12,5 @@ wheels/
 # Environment variables
 .env
 
-# Output files (generated)
-output/
+# # Output files (generated)
+# output/
