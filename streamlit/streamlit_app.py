@@ -5,6 +5,7 @@ Run from project root: streamlit run streamlit/streamlit_app.py
 
 import sys
 import os
+import random
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
@@ -70,6 +71,52 @@ st.markdown("""
         padding: 0.25rem 0.7rem !important;
     }
     div[data-testid="stExpander"] { border: none !important; }
+    /* Stepper / dotted progress tracker */
+    .step-tracker {
+        display: flex;
+        align-items: flex-start;
+        justify-content: center;
+        gap: 0;
+        margin: 1.2rem 0 1.5rem;
+        padding: 1rem 1.5rem;
+        background: #f8fafc;
+        border: 1px dashed #cbd5e1;
+        border-radius: 10px;
+    }
+    .step-item {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        flex: 1;
+        position: relative;
+    }
+    .step-dot {
+        width: 28px; height: 28px;
+        border-radius: 50%;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 0.8rem; font-weight: 700; color: white;
+        margin-bottom: 0.4rem;
+        transition: all 0.3s;
+    }
+    .step-dot.pending { background: #cbd5e1; }
+    .step-dot.active  { background: #2563eb; box-shadow: 0 0 0 4px rgba(37,99,235,0.2); }
+    .step-dot.done    { background: #16a34a; }
+    .step-label {
+        font-size: 0.78rem;
+        color: #64748b;
+        text-align: center;
+        line-height: 1.3;
+        max-width: 140px;
+    }
+    .step-label.active { color: #2563eb; font-weight: 600; }
+    .step-label.done   { color: #16a34a; font-weight: 600; }
+    .step-connector {
+        flex: 0.5;
+        height: 2px;
+        margin-top: 14px;
+        border-top: 2px dotted #cbd5e1;
+    }
+    .step-connector.done { border-top: 2px solid #16a34a; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -87,14 +134,30 @@ BADGE_MAP = {
     "Assessment Exercises": "badge-other",
 }
 
-SAMPLE_QUERIES = [
-    "I am hiring for Java developers who can also collaborate effectively with my business teams.",
-    "Looking to hire mid-level professionals who are proficient in Python, SQL and Java Script.",
-    "I am hiring for an analyst and wants applications to screen using Cognitive and personality tests, the budget is for max 45 min.",
-    "I want to hire new graduates for a sales role, the budget is for 30-40 min assessments.",
+ALL_QUERIES = [
+    # Train set queries
+    "I am hiring for Java developers who can also collaborate effectively with my business teams. Looking for an assessment(s) that can be completed in about 40 minutes.",
     "Content Writer required, expert in English and SEO.",
+    "I want to hire new graduates for a sales role in my company, the budget is for about an hour for each test.",
+    "I want to hire a Senior Data Analyst with 5 years of experience and expertise in SQL, Excel and Python.",
+    "I am looking for a COO for my company in China and I want to see if they are culturally a right fit for the company.",
+    "ICICI Bank Assistant Admin, Experience required 0-2 years, test should be 30-40 mins long",
+    # Test set queries
+    "Looking to hire mid-level professionals who are proficient in Python, SQL and Java Script. Need an assessment package under 60 minutes.",
+    "I am hiring for an analyst and wants applications to screen using Cognitive and personality tests, the budget is for max 45 min.",
+    "I am new looking for new graduates in my sales team, suggest an 30 min long assessment",
+    "I want to hire a product manager with 3-4 years of work experience and expertise in SDLC, Jira and Confluence.",
     "I want to hire Customer support executives who are expert in English communication.",
+    "We're looking for a Marketing Manager who can drive brand positioning, community growth, and digital campaigns.",
+    "Find me a 1 hour long assessment for a Technology Consulting role at a large enterprise.",
+    "Suggest me an assessment for a Global Service Desk Analyst who contributes to customer satisfaction.",
+    "Recommend assessment for a Consultant position in my organization. The assessment should not be more than 90 mins.",
 ]
+
+# Pick 7 random sample queries per session
+if "sample_queries" not in st.session_state:
+    st.session_state["sample_queries"] = random.sample(ALL_QUERIES, 7)
+SAMPLE_QUERIES = st.session_state["sample_queries"]
 
 
 # ---------------------------------------------------------------------------
@@ -176,37 +239,55 @@ if run and query.strip():
     if "query_input" in st.session_state:
         del st.session_state["query_input"]
 
-    progress_bar = st.progress(0)
-    status_text = st.empty()
+    def render_steps(s1="pending", s2="pending", s3="pending", info=""):
+        """Render the dotted step tracker. States: pending, active, done."""
+        items = [
+            (s1, "1", "Query Analysis"),
+            (s2, "2", "Hybrid Retrieval"),
+            (s3, "3", "LLM Reranking"),
+        ]
+        html = '<div class="step-tracker">'
+        for i, (st_val, num, label) in enumerate(items):
+            if i > 0:
+                conn_cls = "done" if items[i-1][0] == "done" else ""
+                html += f'<div class="step-connector {conn_cls}"></div>'
+            dot_content = "&#10003;" if st_val == "done" else num
+            html += f'''<div class="step-item">
+                <div class="step-dot {st_val}">{dot_content}</div>
+                <div class="step-label {st_val}">{label}</div>
+            </div>'''
+        html += '</div>'
+        if info:
+            html += f'<div style="text-align:center;color:#64748b;font-size:0.85rem;margin-top:-0.8rem;margin-bottom:1rem;">{info}</div>'
+        return html
+
+    step_container = st.empty()
+    step_container.markdown(render_steps("active", "pending", "pending", "Analyzing query and generating search terms..."), unsafe_allow_html=True)
 
     # Step 1: Query Analysis
-    status_text.markdown("🟢 **Step 1/3** — Analyzing query and generating search terms...")
     state = GraphState(
         query=query, search_queries=[], skills=[],
         max_duration=None, domain="", candidates=[], recommendations=[],
     )
     qa_result = query_analyzer_node(state)
     state.update(qa_result)
-    progress_bar.progress(33)
 
     # Step 2: Hybrid Retrieval
     n_queries = len(state.get("search_queries", []))
-    status_text.markdown(f"🟢 **Step 2/3** — Running hybrid search ({n_queries} queries across FAISS + BM25)...")
+    step_container.markdown(render_steps("done", "active", "pending", f"Running hybrid search ({n_queries} queries across FAISS + BM25)..."), unsafe_allow_html=True)
     get_bm25()
     ret_result = retriever_node(state)
     state.update(ret_result)
-    progress_bar.progress(66)
 
     # Step 3: LLM Reranking
     n_cands = len(state.get("candidates", []))
-    status_text.markdown(f"🟢 **Step 3/3** — LLM selecting top 10 from {n_cands} candidates...")
+    step_container.markdown(render_steps("done", "done", "active", f"LLM selecting top 10 from {n_cands} candidates..."), unsafe_allow_html=True)
     rerank_result = reranker_node(state)
     results = rerank_result.get("recommendations", [])
-    progress_bar.progress(100)
-    status_text.markdown(f"✅ **Done** — {len(results)} assessments selected")
-    import time; time.sleep(0.5)
-    progress_bar.empty()
-    status_text.empty()
+
+    step_container.markdown(render_steps("done", "done", "done", f"&#10003; Done — {len(results)} assessments selected"), unsafe_allow_html=True)
+    import time; time.sleep(1)
+    step_container.empty()
 
     if results:
         st.markdown(f"#### Recommended Assessments ({len(results)})")
