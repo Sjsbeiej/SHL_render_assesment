@@ -6,7 +6,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from graph import recommend, warmup
+from core.graph import recommend, warmup
 
 app = FastAPI(
     title="SHL Assessment Recommendation Engine",
@@ -48,7 +48,7 @@ async def startup():
 
 @app.get("/health")
 async def health():
-    return {"status": "OK"}
+    return {"status": "healthy"}
 
 
 @app.post("/recommend", response_model=RecommendResponse)

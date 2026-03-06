@@ -1,0 +1,245 @@
+SHL Assessment Recommendation Engine - Evaluation
+Provider: GPT | Model: gpt-4.1
+Timestamp: 2026-03-06 23:36:25
+
+============================================================
+EVALUATION ON TRAIN SET
+============================================================
+Loading train set... (evaluating Recall@10)
+Loaded 10 queries with 65 total labels
+
+Warming up models...
+Models ready.
+
+========================================
+PHASE 1: Parallel Retrieval
+========================================
+  [Retrieval 1/10] Starting: I am hiring for Java developers who can also collaborate eff...
+  [Retrieval 2/10] Starting: I want to hire new graduates for a sales role in my company,...
+  [Retrieval 3/10] Starting: I am looking for a COO for my company in China and I want to...
+  [Retrieval 4/10] Starting: KEY RESPONSIBITILES:
+
+Manage the sound-scape of the station ...
+  [Retrieval 5/10] Starting: Content Writer required, expert in English and SEO....
+  [Retrieval 3/10] Done: 70 candidates
+  [Retrieval 6/10] Starting: Find me 1 hour long assesment for the below job at SHL
+Job D...
+  [Retrieval 2/10] Done: 70 candidates
+  [Retrieval 7/10] Starting: ICICI Bank Assistant Admin, Experience required 0-2 years, t...
+  [Retrieval 1/10] Done: 70 candidates
+  [Retrieval 8/10] Starting: We're looking for a Marketing Manager who can drive Recro’s ...
+  [Retrieval 5/10] Done: 69 candidates
+  [Retrieval 9/10] Starting: Based on the JD below recommend me assessment for the Consul...
+  [Retrieval 4/10] Done: 70 candidates
+  [Retrieval 10/10] Starting: I want to hire a Senior Data Analyst with 5 years of experie...
+  [Retrieval 6/10] Done: 70 candidates
+  [Retrieval 8/10] Done: 70 candidates
+  [Retrieval 7/10] Done: 70 candidates
+  [Retrieval 10/10] Done: 70 candidates
+  [Retrieval 9/10] Done: 70 candidates
+
+========================================
+PHASE 2: Sequential Reranking
+========================================
+
+--- Query 1/10 ---
+Query: I am hiring for Java developers who can also collaborate effectively with my bus...
+Relevant URLs: 5
+Recommended: 10 assessments
+Recall@10: 0.6000
+  [HIT] automata-fix-new
+  [MISS] core-java-entry-level-new
+  [HIT] java-8-new
+  [MISS] core-java-advanced-level-new
+  [HIT] interpersonal-communications
+
+--- Query 2/10 ---
+Query: I want to hire new graduates for a sales role in my company, the budget is for a...
+Relevant URLs: 9
+Recommended: 10 assessments
+Recall@10: 0.5556
+  [HIT] entry-level-sales-7-1
+  [HIT] entry-level-sales-sift-out-7-1
+  [HIT] entry-level-sales-solution
+  [HIT] sales-representative-solution
+  [MISS] business-communication-adaptive
+  [MISS] technical-sales-associate-solution
+  [MISS] svar-spoken-english-indian-accent-new
+  [HIT] interpersonal-communications
+  [MISS] english-comprehension-new
+
+--- Query 3/10 ---
+Query: I am looking for a COO for my company in China and I want to see if they are cul...
+Relevant URLs: 6
+Recommended: 10 assessments
+Recall@10: 0.6667
+  [HIT] enterprise-leadership-report
+  [HIT] occupational-personality-questionnaire-opq32r
+  [HIT] opq-leadership-report
+  [MISS] opq-team-types-and-leadership-styles-report
+  [HIT] enterprise-leadership-report-2-0
+  [MISS] global-skills-assessment
+
+--- Query 4/10 ---
+Query: KEY RESPONSIBITILES:
+
+Manage the sound-scape of the station through appropriate ...
+Relevant URLs: 5
+Recommended: 10 assessments
+Recall@10: 0.4000
+  [MISS] verify-verbal-ability-next-generation
+  [HIT] shl-verify-interactive-inductive-reasoning
+  [MISS] marketing-new
+  [MISS] english-comprehension-new
+  [HIT] interpersonal-communications
+
+--- Query 5/10 ---
+Query: Content Writer required, expert in English and SEO....
+Relevant URLs: 5
+Recommended: 10 assessments
+Recall@10: 0.8000
+  [HIT] english-comprehension-new
+  [MISS] drupal-new
+  [HIT] written-english-v1
+  [HIT] occupational-personality-questionnaire-opq32r
+  [HIT] search-engine-optimization-new
+
+--- Query 6/10 ---
+Query: Find me 1 hour long assesment for the below job at SHL
+Job Description
+
+ Join a ...
+Relevant URLs: 9
+Recommended: 10 assessments
+Recall@10: 0.7778
+  [HIT] automata-selenium
+  [HIT] professional-7-1-solution
+  [HIT] javascript-new
+  [HIT] htmlcss-new
+  [MISS] css3-new
+  [HIT] selenium-new
+  [MISS] sql-server-new
+  [HIT] automata-sql-new
+  [HIT] manual-testing-new
+
+--- Query 7/10 ---
+Query: ICICI Bank Assistant Admin, Experience required 0-2 years, test should be 30-40 ...
+Relevant URLs: 6
+Recommended: 10 assessments
+Recall@10: 0.5000
+  [HIT] administrative-professional-short-form
+  [MISS] verify-numerical-ability
+  [MISS] financial-professional-short-form
+  [HIT] bank-administrative-assistant-short-form
+  [HIT] general-entry-level-data-entry-7-0-solution
+  [MISS] basic-computer-literacy-windows-10-new
+
+--- Query 8/10 ---
+Query: We're looking for a Marketing Manager who can drive Recro’s brand positioning, c...
+Relevant URLs: 5
+Recommended: 10 assessments
+Recall@10: 0.4000
+  [HIT] manager-8-0-jfa-4310
+  [MISS] microsoft-excel-365-essentials-new
+  [MISS] digital-advertising-new
+  [HIT] shl-verify-interactive-inductive-reasoning
+  [MISS] writex-email-writing-sales-new
+
+--- Query 9/10 ---
+Query: Based on the JD below recommend me assessment for the Consultant position in my ...
+Relevant URLs: 5
+Recommended: 10 assessments
+Recall@10: 0.4000
+  [MISS] shl-verify-interactive-numerical-calculation
+  [MISS] administrative-professional-short-form
+  [MISS] verify-verbal-ability-next-generation
+  [HIT] occupational-personality-questionnaire-opq32r
+  [HIT] professional-7-1-solution
+
+--- Query 10/10 ---
+Query: I want to hire a Senior Data Analyst with 5 years of experience and expertise in...
+Relevant URLs: 10
+Recommended: 10 assessments
+Recall@10: 0.7000
+  [MISS] sql-server-analysis-services-%28ssas%29-%28new%29
+  [HIT] sql-server-new
+  [HIT] automata-sql-new
+  [HIT] python-new
+  [HIT] tableau-new
+  [HIT] microsoft-excel-365-new
+  [HIT] microsoft-excel-365-essentials-new
+  [MISS] professional-7-0-solution-3958
+  [HIT] professional-7-1-solution
+  [MISS] data-warehousing-concepts
+
+============================================================
+Mean Recall@10: 0.5800
+Per-query recalls: ['0.60', '0.56', '0.67', '0.40', '0.80', '0.78', '0.50', '0.40', '0.40', '0.70']
+
+
+============================================================
+GENERATING TEST SET PREDICTIONS
+============================================================
+
+Loading test set...
+Loaded 9 test queries
+
+--- Test Query 1/9 ---
+Query: Looking to hire mid-level professionals who are proficient in Python, SQL and Ja...
+Generated 10 recommendations
+
+--- Test Query 2/9 ---
+Query: Job Description
+
+ Join a community that is shaping the future of work! 
+
+ SHL, P...
+Generated 10 recommendations
+
+--- Test Query 3/9 ---
+Query: I am hiring for an analyst and wants applications to screen using Cognitive and ...
+Generated 10 recommendations
+
+--- Test Query 4/9 ---
+Query: I have a JD Job Description
+
+ People Science. People Answers  !
+
+Do you love con...
+Generated 10 recommendations
+
+--- Test Query 5/9 ---
+Query: I am new looking for new graduates in my sales team, suggest an 30 min long asse...
+Generated 10 recommendations
+
+--- Test Query 6/9 ---
+Query: For Marketing - Content Writer Position
+
+Department: Marketing
+
+Location: Gurugr...
+Generated 10 recommendations
+
+--- Test Query 7/9 ---
+Query: I want to hire a product manager with 3-4 years of work experience and expertise...
+Generated 10 recommendations
+
+--- Test Query 8/9 ---
+Query: Suggest me an assessment for the JD below Job Description
+
+ Find purpose in each...
+Generated 10 recommendations
+
+--- Test Query 9/9 ---
+Query: I want to hire Customer support executives who are expert in English communicati...
+Generated 10 recommendations
+
+Predictions saved to C:\Users\A8000\Downloads\Ashish_Genai_project\output\predictions.csv
+Total rows: 90
+
+============================================================
+OUTPUT FILES GENERATED:
+  1. C:\Users\A8000\Downloads\Ashish_Genai_project\output\evaluation_log.txt
+  2. C:\Users\A8000\Downloads\Ashish_Genai_project\output\predictions.csv
+  Mean Recall@10: 0.5800
+============================================================
