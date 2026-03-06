@@ -137,8 +137,8 @@ if __name__ == "__main__":
     print("=" * 60)
     mean_recall = evaluate_train_set(dataset_path)
 
-    print(f"\n\n{'=' * 60}")
-    print("GENERATING TEST SET PREDICTIONS")
-    print("=" * 60)
-    output_path = os.path.join(os.path.dirname(__file__), "predictions.csv")
-    generate_test_predictions(dataset_path, output_path)
+    # print(f"\n\n{'=' * 60}")
+    # print("GENERATING TEST SET PREDICTIONS")
+    # print("=" * 60)
+    # output_path = os.path.join(os.path.dirname(__file__), "predictions.csv")
+    # generate_test_predictions(dataset_path, output_path)

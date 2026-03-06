@@ -22,6 +22,6 @@ REQUEST_DELAY = 1.0  # seconds between requests
 MAX_RETRIES = 3
 
 # Recommendation settings
-TOP_K_PER_QUERY = 40   # candidates per search query from vector search
-TOP_K_TO_LLM = 60      # total candidates sent to LLM reranker
+TOP_K_PER_QUERY = 60   # candidates per search query from vector search
+TOP_K_TO_LLM = 70      # total candidates sent to LLM reranker
 TOP_K_FINAL = 10       # final recommendations to show
